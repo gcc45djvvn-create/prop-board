@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Prop Board</title>
+<style>
+:root{--bg:#fff;--card:#f6f7f9;--text:#111827;--mute:#6b7280;--line:#e5e7eb;--accent:#10b981;--accent-t:#065f46}
+@media(prefers-color-scheme:dark){:root{--bg:#0b0f14;--card:#141a22;--text:#e5e7eb;--mute:#9ca3af;--line:#243041;--accent:#10b981;--accent-t:#6ee7b7}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,sans-serif;padding:0 14px 80px}
+header{max-width:1000px;margin:0 auto;padding:20px 0 8px}h1{margin:0;font-size:22px}.sub{color:var(--mute);font-size:13px}
+main{max-width:1000px;margin:0 auto}
+.tabs{display:flex;gap:6px;margin:14px 0;flex-wrap:wrap}
+.tab,button{border:1px solid var(--line);background:var(--card);color:var(--text);padding:7px 14px;border-radius:8px;cursor:pointer;font:inherit}
+.tab.on,button.primary{background:var(--accent);border-color:var(--accent);color:#04251a;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+input,select{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{width:100%;border-collapse:collapse;min-width:640px}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em;background:var(--card)}
+td.n{text-align:right}th.n{text-align:right}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;background:var(--card);border:1px solid var(--line);font-size:12px}
+.hot{color:var(--accent-t);font-weight:600}
+.slip{margin-top:22px;border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--card)}
+.leg{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+.leg:last-child{border:0}.x{cursor:pointer;color:var(--mute)}
+.note{color:var(--mute);font-size:12px;margin-top:10px}
+</style>
+</head>
+<body>
+<header><h1>Prop Board</h1>
+<div class="sub" id="upd">Loading…</div></header>
+<main>
+<div class="tabs" id="tabs"></div>
+<div class="row">
+  <input id="q" placeholder="Search player or team">
+  <select id="mk"><option value="">All markets</option></select>
+  <select id="sort"><option value="score">Sort: score</option><option value="hit">Sort: hit rate</option><option value="n">Sort: sample</option><option value="streak">Sort: streak</option></select>
+</div>
+<div class="tw"><table><thead><tr>
+<th></th><th>Player</th><th>Prop</th><th class="n">Hit</th><th class="n">Sample</th><th class="n">L10</th><th class="n">Streak</th><th class="n">Avg</th><th class="n">Score</th>
+</tr></thead><tbody id="rows"></tbody></table></div>
+<div id="empty" class="note"></div>
+
+<section class="slip">
+  <div class="row" style="align-items:center">
+    <strong>Parlay slip</strong>
+    <select id="legs"><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option></select>
+    <span class="sub">legs</span>
+    <button class="primary" id="auto">Auto-build from this board</button>
+    <button id="clear">Clear</button>
+  </div>
+  <div id="slip"></div>
+</section>
+<p class="note">Research only, not betting advice. Hit rates describe past games (last 25 played); the sportsbook line already prices in most of that history. "Prop" shows the highest standard line the player cleared at a sample-weighted rate of 65% or better. No sportsbook prices are shown yet, so these are not posted lines. Combined probability assumes legs are independent, which is not true for same-game legs. If you or someone you know has a gambling problem, call 1-800-GAMBLER (US) or 1-866-531-2600 (Ontario ConnexOntario).</p>
+</main>
+<script>
+let D=null, league="nba", slip=[];
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const key=r=>r.league+"|"+r.player+"|"+r.market;
+
+fetch("data/board.json?"+Date.now()).then(r=>r.json()).then(d=>{D=d;init()}).catch(()=>{$("upd").textContent="Could not load data/board.json"});
+
+function init(){
+  $("upd").textContent=D.updated?("Updated "+new Date(D.updated).toLocaleString()):"No data yet. Run the update script.";
+  const names={nba:"NBA",nfl:"NFL",nhl:"NHL",ufc:"UFC"};
+  $("tabs").innerHTML=Object.keys(D.leagues).map(l=>`<button class="tab ${l===league?"on":""}" data-l="${l}">${names[l]||l} (${D.leagues[l].length})</button>`).join("");
+  $("tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>{league=b.dataset.l;$("mk").value="";init()});
+  const mks=[...new Set(D.leagues[league].map(r=>r.market))].sort();
+  $("mk").innerHTML='<option value="">All markets</option>'+mks.map(m=>`<option>${esc(m)}</option>`).join("");
+  render();
+}
+function filtered(){
+  const q=$("q").value.toLowerCase(), m=$("mk").value, s=$("sort").value;
+  return D.leagues[league].filter(r=>(!m||r.market===m)&&(!q||(r.player+" "+r.team).toLowerCase().includes(q)))
+    .sort((a,b)=>b[s]-a[s]||b.score-a.score);
+}
+function render(){
+  const rows=filtered();
+  $("rows").innerHTML=rows.slice(0,300).map(r=>{
+    const i=slip.findIndex(x=>key(x)===key(r));
+    return `<tr><td><input type="checkbox" data-k="${esc(key(r))}" ${i>=0?"checked":""}></td>
+    <td>${esc(r.player)} <span class="pill">${esc(r.team)}</span></td>
+    <td>${esc(r.side)} ${r.line} ${esc(r.market)}</td>
+    <td class="n ${r.hit>=.85?"hot":""}">${Math.round(r.hit*100)}%</td>
+    <td class="n">${r.hits}/${r.n}</td><td class="n">${Math.round(r.l10*100)}%</td>
+    <td class="n">${r.streak}</td><td class="n">${r.avg}</td><td class="n">${r.score.toFixed(3)}</td></tr>`}).join("");
+  $("rows").querySelectorAll("input").forEach(c=>c.onchange=()=>{
+    const r=D.leagues[league].find(x=>key(x)===c.dataset.k);
+    if(c.checked){ if(!slip.some(x=>x.player===r.player)) slip.push(r); else c.checked=false; }
+    else slip=slip.filter(x=>key(x)!==c.dataset.k);
+    drawSlip();
+  });
+  $("empty").textContent=rows.length?"":(league==="ufc"?"UFC needs sportsbook lines and a different model. Not built yet.":"No props match. If this is empty, run the update script.");
+  drawSlip();
+}
+function drawSlip(){
+  if(!slip.length){$("slip").innerHTML='<div class="note">Pick legs from the board or tap Auto-build.</div>';return}
+  const p=slip.reduce((a,r)=>a*r.adj,1);
+  $("slip").innerHTML=slip.map((r,i)=>`<div class="leg"><span>${esc(r.player)} (${esc(r.team)}) — ${esc(r.side)} ${r.line} ${esc(r.market)}</span>
+    <span>${Math.round(r.hit*100)}% <span class="x" data-i="${i}">✕</span></span></div>`).join("")+
+    `<div class="leg"><strong>Combined (independent, sample-weighted)</strong><strong>${(p*100).toFixed(1)}%</strong></div>`;
+  $("slip").querySelectorAll(".x").forEach(x=>x.onclick=()=>{slip.splice(+x.dataset.i,1);render()});
+}
+$("auto").onclick=()=>{
+  const n=+$("legs").value, out=[], teams={}, players=new Set();
+  for(const r of filtered().sort((a,b)=>b.score-a.score)){
+    if(players.has(r.player)||(teams[r.team]||0)>=1) continue;
+    out.push(r);players.add(r.player);teams[r.team]=(teams[r.team]||0)+1;
+    if(out.length===n)break;
+  }
+  slip=out;render();
+};
+$("clear").onclick=()=>{slip=[];render()};
+["q","mk","sort"].forEach(id=>$(id).oninput=render);
+</script>
+</body>
+</html>

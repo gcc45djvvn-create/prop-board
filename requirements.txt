@@ -1,0 +1,6 @@
+pandas
+requests
+nba_api
+nflreadpy
+polars
+pyarrow
